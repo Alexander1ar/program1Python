@@ -13,10 +13,10 @@ app = Flask(__name__)
 
 # Configuración de la base de datos
 db_config = {
-    'host': 'monorail.proxy.rlwy.net',
-    'port': '18774',
+    'host': 'autorack.proxy.rlwy.net',
+    'port': '23931',
     'user': 'root',
-    'password': 'KUmWNRFpmbrQCUOxgDHOiGNswZaPDELN',
+    'password': 'SfTUudJuiVGsyjkUUXZpagNKcYocDxvn',
     'database': 'railway'
 }
 
