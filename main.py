@@ -1,27 +1,31 @@
 from flask import Flask, render_template_string, request
 import pandas as pd
 from sqlalchemy import create_engine
+from sqlalchemy.pool import NullPool
 import matplotlib.pyplot as plt
 import io
 import base64
 import seaborn as sns
 from scipy import stats
 import numpy as np
-from datetime import datetime
+import os
 
 app = Flask(__name__)
 
-# Configuración de la base de datos
+# Configuración de la base de datos mediante variables de entorno
 db_config = {
-    'host': 'autorack.proxy.rlwy.net',
-    'port': '23931',
-    'user': 'root',
-    'password': 'SfTUudJuiVGsyjkUUXZpagNKcYocDxvn',
-    'database': 'railway'
+    'host': os.getenv('DB_HOST', 'autorack.proxy.rlwy.net'),
+    'port': os.getenv('DB_PORT', '23931'),
+    'user': os.getenv('DB_USER', 'root'),
+    'password': os.getenv('DB_PASSWORD', 'SfTUudJuiVGsyjkUUXZpagNKcYocDxvn'),
+    'database': os.getenv('DB_NAME', 'railway')
 }
 
-# Crear el engine de SQLAlchemy
-engine = create_engine(f"mysql://{db_config['user']}:{db_config['password']}@{db_config['host']}:{db_config['port']}/{db_config['database']}")
+# Crear el engine de SQLAlchemy con un pool de conexiones
+engine = create_engine(
+    f"mysql://{db_config['user']}:{db_config['password']}@{db_config['host']}:{db_config['port']}/{db_config['database']}",
+    poolclass=NullPool  # NullPool evita que se mantengan conexiones abiertas si no es necesario
+)
 
 # Fecha de inicio para el filtro de datos
 start_date = '2024-08-01'
@@ -29,53 +33,28 @@ start_date = '2024-08-01'
 def create_histogram_with_fit(variable_name, data):
     # Crear el histograma
     fig, ax = plt.subplots(figsize=(10, 6))
-    n, bins, patches = ax.hist(data, bins=20, edgecolor='black', alpha=0.6, density=True)
+    ax.hist(data, bins=20, edgecolor='black', alpha=0.6, density=True)
 
     # Ajuste de distribución normal
     mu, std = stats.norm.fit(data)
-    p = stats.norm.pdf(bins, mu, std)
-    ax.plot(bins, p, 'k', linewidth=2)
+    p = stats.norm.pdf(np.linspace(min(data), max(data), 100), mu, std)
+    ax.plot(np.linspace(min(data), max(data), 100), p, 'k', linewidth=2)
 
-    # Añadir título y etiquetas
     ax.set_title(f'Histograma de {variable_name} con Ajuste Gaussiano')
     ax.set_xlabel(variable_name)
     ax.set_ylabel('Densidad')
     ax.grid(True)
 
-    # Guardar el gráfico en un buffer de memoria
     buf = io.BytesIO()
     plt.savefig(buf, format='png')
     buf.seek(0)
     img_data = base64.b64encode(buf.getvalue()).decode('utf-8')
     buf.close()
-
     return img_data
-
-def calculate_pearson_correlation(x, y):
-    # Convertir a arrays de numpy
-    x = np.array(x)
-    y = np.array(y)
-    
-    # Calcular medias
-    x_mean = np.mean(x)
-    y_mean = np.mean(y)
-    
-    # Calcular desviaciones estándar
-    x_std = np.std(x, ddof=1)
-    y_std = np.std(y, ddof=1)
-    
-    # Calcular la covarianza
-    covariance = np.mean((x - x_mean) * (y - y_mean))
-    
-    # Calcular el coeficiente de correlación
-    r = covariance / (x_std * y_std)
-    
-    return r
 
 def create_correlation_plot(var1, var2):
     fig, ax = plt.subplots(figsize=(10, 6))
 
-    # Consulta SQL para obtener los datos del último mes
     query = f"""
         SELECT {var1}, {var2}
         FROM emeteorologicaps
@@ -87,23 +66,12 @@ def create_correlation_plot(var1, var2):
     df.dropna(subset=[var1, var2], inplace=True)
 
     # Convertir a numpy arrays
-    x = df[var1].to_numpy()
-    y = df[var2].to_numpy()
+    x = (df[var1] - df[var1].mean()) / df[var1].std(ddof=1)
+    y = (df[var2] - df[var2].mean()) / df[var2].std(ddof=1)
 
-    # Normalización de los datos
-    x = (x - np.mean(x)) / np.std(x, ddof=1)
-    y = (y - np.mean(y)) / np.std(y, ddof=1)
-
-    # Calcular el coeficiente de correlación de Pearson manualmente
-    r_manual = calculate_pearson_correlation(x, y)
-    
-    # Calcular el coeficiente de correlación de Pearson usando stats.pearsonr
-    r, p_value = stats.pearsonr(x, y)
-    
-    # Crear el gráfico de dispersión con la línea de ajuste
     sns.scatterplot(x=x, y=y, ax=ax)
     sns.regplot(x=x, y=y, scatter=False, color='red', ax=ax)
-    ax.set_title(f'Correlación de Pearson entre {var1} y {var2} (Coeficiente: {r:.2f}, Manual: {r_manual:.2f})')
+    ax.set_title(f'Correlación entre {var1} y {var2}')
     ax.set_xlabel(var1)
     ax.set_ylabel(var2)
     ax.grid(True)
@@ -113,13 +81,11 @@ def create_correlation_plot(var1, var2):
     buf.seek(0)
     img_data = base64.b64encode(buf.getvalue()).decode('utf-8')
     buf.close()
-
     return img_data
 
 @app.route('/')
 def index():
     try:
-        # Consulta SQL para obtener los datos del último mes
         variables = [
             'temperaturaaire', 'humedadaire', 'intensidadluz',
             'indiceuv', 'velocidadviento', 'direccionviento', 'presionbarometrica'
@@ -135,7 +101,6 @@ def index():
             df = pd.read_sql(query, engine)
             img_data_dict[var] = create_histogram_with_fit(var, df[var])
 
-        # HTML para renderizar las imágenes
         html = '''
         <!doctype html>
         <html lang="en">
@@ -203,5 +168,7 @@ def correlation():
         return "No variables selected. Go back and select two variables."
 
 if __name__ == "__main__":
+    # Railway asigna el puerto mediante la variable de entorno 'PORT'
+    port = int(os.environ.get('PORT', 5000))
     from waitress import serve
-    serve(app, host="0.0.0.0", port=5000)
+    serve(app, host="0.0.0.0", port=port)
