@@ -1,6 +1,6 @@
 from flask import Flask, render_template_string, request
 import pandas as pd
-import mysql.connector
+from sqlalchemy import create_engine
 import matplotlib.pyplot as plt
 import io
 import base64
@@ -19,6 +19,9 @@ db_config = {
     'password': 'SfTUudJuiVGsyjkUUXZpagNKcYocDxvn',
     'database': 'railway'
 }
+
+# Crear el engine de SQLAlchemy
+engine = create_engine(f"mysql://{db_config['user']}:{db_config['password']}@{db_config['host']}:{db_config['port']}/{db_config['database']}")
 
 # Fecha de inicio para el filtro de datos
 start_date = '2024-08-01'
@@ -72,23 +75,13 @@ def calculate_pearson_correlation(x, y):
 def create_correlation_plot(var1, var2):
     fig, ax = plt.subplots(figsize=(10, 6))
 
-    # Conexión a la base de datos
-    conn = mysql.connector.connect(
-        host=db_config['host'],
-        port=db_config['port'],
-        user=db_config['user'],
-        password=db_config['password'],
-        database=db_config['database']
-    )
-
     # Consulta SQL para obtener los datos del último mes
     query = f"""
         SELECT {var1}, {var2}
         FROM emeteorologicaps
         WHERE fecha >= '{start_date}'
     """
-    df = pd.read_sql(query, conn)
-    conn.close()
+    df = pd.read_sql(query, engine)
 
     # Eliminar valores nulos
     df.dropna(subset=[var1, var2], inplace=True)
@@ -126,15 +119,6 @@ def create_correlation_plot(var1, var2):
 @app.route('/')
 def index():
     try:
-        # Conexión a la base de datos
-        conn = mysql.connector.connect(
-            host=db_config['host'],
-            port=db_config['port'],
-            user=db_config['user'],
-            password=db_config['password'],
-            database=db_config['database']
-        )
-
         # Consulta SQL para obtener los datos del último mes
         variables = [
             'temperaturaaire', 'humedadaire', 'intensidadluz',
@@ -148,10 +132,8 @@ def index():
                 FROM emeteorologicaps
                 WHERE fecha >= '{start_date}'
             """
-            df = pd.read_sql(query, conn)
+            df = pd.read_sql(query, engine)
             img_data_dict[var] = create_histogram_with_fit(var, df[var])
-
-        conn.close()
 
         # HTML para renderizar las imágenes
         html = '''
