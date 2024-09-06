@@ -2,6 +2,8 @@ from flask import Flask, render_template_string, request
 import pandas as pd
 from sqlalchemy import create_engine
 from sqlalchemy.pool import NullPool
+import matplotlib
+matplotlib.use('Agg')  # Evitar GUI de Matplotlib
 import matplotlib.pyplot as plt
 import io
 import base64
@@ -168,7 +170,6 @@ def correlation():
         return "No variables selected. Go back and select two variables."
 
 if __name__ == "__main__":
-    # Railway asigna el puerto mediante la variable de entorno 'PORT'
     port = int(os.environ.get('PORT', 5000))
     from waitress import serve
     serve(app, host="0.0.0.0", port=port)
